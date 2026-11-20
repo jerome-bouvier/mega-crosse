@@ -1,6 +1,6 @@
 # Mega Crosse
 
-Jeu de floorball arcade pour mobile, par **Boubou Gaming**. Prototype web v0.1.
+Jeu de floorball arcade pour mobile, par **Boubou Gaming**. Prototype web v0.2.
 
 **Jouer :** https://jerome-bouvier.github.io/mega-crosse/ (téléphone en mode paysage)
 
@@ -12,7 +12,7 @@ Jeu de floorball arcade pour mobile, par **Boubou Gaming**. Prototype web v0.1.
 | Taper le gros bouton | Espace | Passe |
 | Maintenir puis lâcher | Espace (maintenu) | Tir (plus c'est long, plus c'est fort) |
 | Gros bouton sans la balle | Espace | Voler la balle |
-| Bouton SUPER (jauge pleine) | K | Pouvoir de l'équipe |
+| Bouton SUPER (jauge pleine) | K | Pouvoir de l'équipe (la mascotte entre en scène) |
 | Bouton pause | P / Échap | Pause |
 
 ## Équipes

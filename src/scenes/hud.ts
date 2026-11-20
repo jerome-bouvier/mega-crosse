@@ -55,6 +55,7 @@ export class Hud extends Phaser.Scene {
     m.events2.on('banner', (s: string, c: string, d: number) => this.banner(s, c, d));
     m.events2.on('goal', (scorer: number) => this.goal(scorer));
     m.events2.on('save', () => this.banner('ARRÊT !', PAL.text, 600, 16));
+    m.events2.on('power', (side: number) => this.mascotIn(side));
 
     if (m.state === 'intro') {
       if (!settings.seenHelp) showHelp(this, () => { settings.seenHelp = true; saveSettings(); m.begin(); });
@@ -132,6 +133,29 @@ export class Hud extends Phaser.Scene {
     this.bannerT = t;
     this.tweens.add({ targets: t, scale: { from: 1.6, to: 1 }, duration: 250, ease: 'Back.out' });
     this.tweens.add({ targets: t, alpha: 0, delay: dur, duration: 250, onComplete: () => t.destroy() });
+  }
+
+  /** La mascotte surgit du bord de l'écran quand une équipe active son Super. */
+  mascotIn(side: number) {
+    const { width: w, height: h } = this.scale;
+    const team = this.m.teams[side];
+    const left = side === 0;
+    const c = this.add.container(left ? -70 : w + 70, h / 2 + 28).setDepth(320);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.5); g.fillRect(-50, -46, 104, 104);
+    g.fillStyle(team.color, 1); g.fillRect(-52, -50, 104, 100);
+    g.lineStyle(3, 0x120f2a, 1); g.strokeRect(-52, -50, 104, 100);
+    g.fillStyle(0xffffff, 0.18); g.fillRect(-49, -47, 98, 6);
+    const img = this.add.image(0, -4, `m_${team.id}`).setScale(3.6);
+    if (!left) img.setFlipX(true);
+    const name = txt(this, 0, 58, team.mascot.toUpperCase(), 8, PAL.text);
+    name.setShadow(0, 2, '#120f2a', 0, false, true);
+    c.add([g, img, name]);
+    c.setAngle(left ? -8 : 8);
+    const tx = left ? 70 : w - 70;
+    this.tweens.add({ targets: c, x: tx, angle: 0, duration: 260, ease: 'Back.out' });
+    this.tweens.add({ targets: img, scale: 4, yoyo: true, repeat: 3, duration: 110, delay: 260 });
+    this.tweens.add({ targets: c, x: left ? -80 : w + 80, delay: 1250, duration: 220, ease: 'Back.in', onComplete: () => c.destroy() });
   }
 
   goal(scorer: number) {

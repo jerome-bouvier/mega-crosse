@@ -1,16 +1,43 @@
 import Phaser from 'phaser';
 import { TEAMS, settings, statMult, type Team, type MatchSetup, type MatchStats } from '../data';
 import { sfx } from '../sfx';
+import { buzz } from '../haptic';
 import { FONT } from '../ui';
 
-// --- Terrain (unités "sol" ; 20 unités = 1 m) -------------------------------
+// --- Terrain (unités "sol" ; 15 unités = 1 m) -------------------------------
 export const TILT = 0.72;           // écrasement vertical = vue inclinée
-export const RW = 800, RH = 400, CY = 200;
-export const GX = [70, 730];        // ligne de but de chaque camp (équipe 0 défend à gauche)
+export const RW = 600, RH = 300, CY = 150, CX = 300;
+export const CR = 70;               // rayon des angles arrondis de la bande
+export const GX = [52, 548];        // ligne de but de chaque camp (équipe 0 défend à gauche)
 export const GH = 30;               // demi-largeur du but (un peu plus large que le vrai, c'est de l'arcade)
 const GD = 22;                      // profondeur du but
 export const MATCH_TIME = 120;
 const sy = (y: number) => y * TILT;
+
+/** Garde un point dans la patinoire (rectangle aux angles arrondis).
+ *  Renvoie la normale intérieure si le point touchait la bande. */
+export function confine(o: { x: number; y: number }, m: number): [number, number] | null {
+  let n: [number, number] | null = null;
+  if (o.x < m) { o.x = m; n = [1, 0]; } else if (o.x > RW - m) { o.x = RW - m; n = [-1, 0]; }
+  if (o.y < m) { o.y = m; n = [0, 1]; } else if (o.y > RH - m) { o.y = RH - m; n = [0, -1]; }
+  const cx = o.x < CR ? CR : o.x > RW - CR ? RW - CR : null;
+  const cy = o.y < CR ? CR : o.y > RH - CR ? RH - CR : null;
+  if (cx !== null && cy !== null) {
+    const dx = o.x - cx, dy = o.y - cy, d = Math.hypot(dx, dy), lim = CR - m;
+    if (d > lim) { o.x = cx + (dx / d) * lim; o.y = cy + (dy / d) * lim; n = [-dx / d, -dy / d]; }
+  }
+  return n;
+}
+
+/** Contour de la patinoire, dans le sens horaire depuis le haut gauche. */
+export function rinkOutline(step = 8): [number, number][] {
+  const pts: [number, number][] = [];
+  const arc = (cx: number, cy: number, a0: number) => {
+    for (let i = 0; i <= step; i++) { const a = a0 + (i / step) * (Math.PI / 2); pts.push([cx + Math.cos(a) * CR, cy + Math.sin(a) * CR]); }
+  };
+  arc(CR, CR, Math.PI); arc(RW - CR, CR, -Math.PI / 2); arc(RW - CR, RH - CR, 0); arc(CR, RH - CR, Math.PI / 2);
+  return pts;
+}
 
 export type Side = 0 | 1;
 
@@ -60,7 +87,7 @@ export class Match extends Phaser.Scene {
   trailT = 0;
   goalGfx: Phaser.GameObjects.Container[] = [];
   marker!: Phaser.GameObjects.Graphics;
-  camTarget = { x: 400, y: 144 };
+  camTarget = { x: CX, y: CY * TILT };
   events2 = new Phaser.Events.EventEmitter();   // vers le HUD
   cpuPowerDelay = 0;
 
@@ -113,50 +140,70 @@ export class Match extends Phaser.Scene {
   drawRink() {
     const g = this.add.graphics().setDepth(-100);
     const H = sy(RH);
+    const V = (x: number, y: number) => new Phaser.Math.Vector2(x, sy(y));
     // tribunes
     for (let y = -78; y < -18; y += 4) for (let x = -70; x < RW + 70; x += 4) {
       if (Math.random() < 0.55) {
-        const c = Phaser.Utils.Array.GetRandom([0x3a3470, 0x2b2766, this.teams[0].color, this.teams[1].color, 0xf4f1ff, 0x5a54c4]);
+        const c = Phaser.Utils.Array.GetRandom([0x3a3470, 0x2b2766, this.teams[0].color, this.teams[1].color, 0xf4f1de, 0x5a54c4]);
         g.fillStyle(c, Math.random() * 0.5 + 0.35); g.fillRect(x + (y % 8 ? 2 : 0), y, 2, 2);
       }
     }
-    // sol
-    g.fillStyle(0x2f6fb0, 1); g.fillRect(0, 0, RW, H);
-    for (let x = 0; x < RW; x += 80) { g.fillStyle(0x3478bb, 1); g.fillRect(x, 0, 40, H); }
+    const outline = rinkOutline();
+    // sol (angles arrondis) + bandes de couleur alternées
+    g.fillStyle(0x2f6fb0, 1); g.fillPoints(outline.map(([x, y]) => V(x, y)), true);
+    const stripes = this.add.graphics().setDepth(-99);
+    for (let x = 0; x < RW; x += 60) { stripes.fillStyle(0x3478bb, 1); stripes.fillRect(x, 0, 30, H); }
+    const maskG = this.make.graphics({}, false); maskG.fillStyle(0xffffff); maskG.fillPoints(outline.map(([x, y]) => V(x, y)), true);
+    stripes.setMask(maskG.createGeometryMask());
     // lignes
-    g.lineStyle(2, 0xf4f1ff, 0.85);
-    g.lineBetween(400, 0, 400, H);
-    g.strokeEllipse(400, sy(CY), 110, 110 * TILT);
-    g.fillStyle(0xf4f1ff, 0.9); g.fillRect(398, sy(CY) - 1, 4, 3);
+    const l = this.add.graphics().setDepth(-98);
+    l.lineStyle(2, 0xf4f1de, 0.85);
+    l.lineBetween(CX, 1, CX, H - 1);
+    l.strokeEllipse(CX, sy(CY), 90, 90 * TILT);
+    l.fillStyle(0xf4f1de, 0.9); l.fillRect(CX - 2, sy(CY) - 1, 4, 3);
     [0, 1].forEach((t) => {
       const gx = GX[t], s = t === 0 ? 1 : -1;
-      // zone de réparation
-      const x0 = t === 0 ? gx - 25 : gx - 75, w = 100;
-      g.lineStyle(2, 0xf4f1ff, 0.75); g.strokeRect(x0, sy(CY - 78), w, sy(156));
-      // zone du gardien
-      g.fillStyle(0xf4f1ff, 0.12); g.fillRect(t === 0 ? gx - 5 : gx - 20, sy(CY - 40), 25, sy(80));
-      g.lineStyle(1, 0xf4f1ff, 0.7); g.strokeRect(t === 0 ? gx - 5 : gx - 20, sy(CY - 40), 25, sy(80));
-      // points d'engagement
-      [[gx + s * 60, 70], [gx + s * 60, 330]].forEach(([x, y]) => { g.fillStyle(0xf4f1ff, 0.8); g.fillRect(x - 3, sy(y), 7, 1); g.fillRect(x, sy(y) - 2, 1, 5); });
+      const x0 = t === 0 ? gx - 20 : gx - 60, w = 80;
+      l.lineStyle(2, 0xf4f1de, 0.75); l.strokeRect(x0, sy(CY - 60), w, sy(120));
+      l.fillStyle(0xf4f1de, 0.12); l.fillRect(t === 0 ? gx - 4 : gx - 16, sy(CY - 32), 20, sy(64));
+      l.lineStyle(1, 0xf4f1de, 0.7); l.strokeRect(t === 0 ? gx - 4 : gx - 16, sy(CY - 32), 20, sy(64));
+      [[gx + s * 50, 60], [gx + s * 50, RH - 60]].forEach(([x, y]) => { l.fillStyle(0xf4f1de, 0.8); l.fillRect(x - 3, sy(y), 7, 1); l.fillRect(x, sy(y) - 2, 1, 5); });
     });
-    // bandes
-    g.fillStyle(0xe9e6f6, 1); g.fillRect(-6, -16, RW + 12, 16);
-    g.fillStyle(0xc9c4e6, 1); g.fillRect(-6, -4, RW + 12, 4);
-    g.fillStyle(0x120f2a, 1); g.fillRect(-6, -17, RW + 12, 1);
-    g.fillStyle(0xe9e6f6, 1); g.fillRect(-8, -16, 8, H + 16); g.fillRect(RW, -16, 8, H + 16);
-    g.fillStyle(0x120f2a, 0.6); g.fillRect(-9, -16, 1, H + 16); g.fillRect(RW + 8, -16, 1, H + 16);
-    // pubs sur la bande du fond
-    const ads = ['MEGA CROSSE', 'BOUBOU GAMING', this.teams[0].name, this.teams[1].name];
-    for (let i = 0; i < 6; i++) {
-      this.add.text(70 + i * 130, -10, ads[i % ads.length], { fontFamily: FONT, fontSize: '8px', color: i % 2 ? '#5a54c4' : '#e8423c' })
-        .setOrigin(0.5).setDepth(-99).setScale(0.75);
+    // bandes : fond (derrière les joueurs) et devant (par-dessus, un peu transparentes)
+    const back = this.add.graphics().setDepth(-97);
+    const front = this.add.graphics().setDepth(5000);
+    const n = outline.length;
+    for (let i = 0; i < n; i++) {
+      const [x1, y1] = outline[i], [x2, y2] = outline[(i + 1) % n];
+      const isFront = (y1 + y2) / 2 > CY;
+      const gr = isFront ? front : back, h = isFront ? 8 : 15;
+      const shade = Math.abs(x2 - x1) > Math.abs(y2 - y1) ? 0xe9e6f6 : 0xc9c4e6;
+      gr.fillStyle(shade, isFront ? 0.9 : 1);
+      gr.fillPoints([V(x1, y1), V(x2, y2), new Phaser.Math.Vector2(x2, sy(y2) - h), new Phaser.Math.Vector2(x1, sy(y1) - h)], true);
     }
-    // bande avant (devant les joueurs)
-    const f = this.add.graphics().setDepth(5000);
-    f.fillStyle(0xe9e6f6, 0.92); f.fillRect(-8, H, RW + 16, 9);
-    f.fillStyle(0x120f2a, 1); f.fillRect(-8, H + 9, RW + 16, 1);
-    f.fillStyle(this.teams[0].color, 1); f.fillRect(-8, H + 3, RW / 2 + 8, 2);
-    f.fillStyle(this.teams[1].color, 1); f.fillRect(RW / 2, H + 3, RW / 2 + 8, 2);
+    // liseré du haut de la bande
+    for (const [gr, h, front_] of [[back, 15, false], [front, 8, true]] as [Phaser.GameObjects.Graphics, number, boolean][]) {
+      gr.lineStyle(3, 0xf4f1f6, 1);
+      for (let i = 0; i < n; i++) {
+        const [x1, y1] = outline[i], [x2, y2] = outline[(i + 1) % n];
+        if (((y1 + y2) / 2 > CY) !== front_) continue;
+        gr.lineBetween(x1, sy(y1) - h, x2, sy(y2) - h);
+      }
+      gr.lineStyle(1, 0x120f2a, 0.8);
+      for (let i = 0; i < n; i++) {
+        const [x1, y1] = outline[i], [x2, y2] = outline[(i + 1) % n];
+        if (((y1 + y2) / 2 > CY) !== front_) continue;
+        gr.lineBetween(x1, sy(y1) - h - 2, x2, sy(y2) - h - 2);
+      }
+    }
+    front.fillStyle(this.teams[0].color, 1); front.fillRect(CR, H - 5, CX - CR, 2);
+    front.fillStyle(this.teams[1].color, 1); front.fillRect(CX, H - 5, CX - CR, 2);
+    // pubs sur la bande du fond
+    const ads = ['MEGA CROSSE', 'BOUBOU GAMING', 'MEGA CROSSE'];
+    ads.forEach((a, i) => {
+      this.add.text(CR + 60 + i * ((RW - 2 * CR - 120) / 2), -8, a, { fontFamily: FONT, fontSize: '8px', color: i === 1 ? '#5a54c4' : '#e8423c' })
+        .setOrigin(0.5).setDepth(-96).setScale(0.75);
+    });
   }
 
   drawGoal(t: Side) {
@@ -182,8 +229,8 @@ export class Match extends Phaser.Scene {
   // ---------------------------------------------------------------- phases
   placeKickoff(team: Side) {
     const pos: Record<Side, [number, number][]> = {
-      0: [[team === 0 ? 388 : 330, CY], [300, 110], [300, 290], [GX[0] + 8, CY]],
-      1: [[team === 1 ? 412 : 470, CY], [500, 110], [500, 290], [GX[1] - 8, CY]],
+      0: [[team === 0 ? CX - 12 : CX - 60, CY], [CX - 90, CY - 75], [CX - 90, CY + 75], [GX[0] + 8, CY]],
+      1: [[team === 1 ? CX + 12 : CX + 60, CY], [CX + 90, CY - 75], [CX + 90, CY + 75], [GX[1] - 8, CY]],
     };
     this.players.forEach((p) => {
       const [x, y] = pos[p.team][p.i];
@@ -194,7 +241,7 @@ export class Match extends Phaser.Scene {
     this.gain(this.players.find((p) => p.team === team && p.i === 0)!, true);
     this.ctrl = this.players.find((p) => p.team === 0 && p.i === 0)!;
     if (team === 0) this.ctrl = b.owner;
-    this.camTarget.x = 400; this.camTarget.y = sy(CY);
+    this.camTarget.x = CX; this.camTarget.y = sy(CY);
   }
 
   kickoff(team: Side) {
@@ -208,6 +255,7 @@ export class Match extends Phaser.Scene {
     this.score[scorer]++;
     this.gauge[1 - scorer as Side] = Math.min(1, this.gauge[1 - scorer as Side] + 0.15);
     sfx.goal();
+    buzz(scorer === 0 ? [70, 50, 70, 50, 120] : [150]);
     this.cameras.main.shake(350, 0.012);
     this.events2.emit('goal', scorer);
   }
@@ -234,7 +282,7 @@ export class Match extends Phaser.Scene {
       if (this.stateT <= 0) {
         if (this.clock <= 0) this.endMatch();
         else {
-          const conceded: Side = this.ball.last && this.ball.x < 400 ? 0 : 1;
+          const conceded: Side = this.ball.x < CX ? 0 : 1;
           this.kickoff(conceded);
         }
         return;
@@ -299,10 +347,10 @@ export class Match extends Phaser.Scene {
     const mine = this.players.filter((p) => p.team === 0 && !p.goalie);
     if (b.owner && b.owner.team === 0 && !b.owner.goalie) { this.ctrl = b.owner; return; }
     if (!b.owner && b.passTo && b.passTo.team === 0) { this.ctrl = b.passTo; return; }
-    const tx = b.x + b.vx * 0.2, ty = b.y + b.vy * 0.2;
-    const d = (p: P) => Math.hypot(p.x - tx, p.y - ty);
+    // l'adversaire a la balle ou elle est libre : toujours le joueur le plus proche
+    const d = (p: P) => Math.hypot(p.x - b.x, p.y - b.y);
     const near = mine.reduce((a, c) => (d(c) < d(a) ? c : a));
-    if (!this.ctrl || this.ctrl.goalie || d(near) + 30 < d(this.ctrl)) this.ctrl = near;
+    if (!this.ctrl || this.ctrl.goalie || d(near) + 3 < d(this.ctrl)) this.ctrl = near;
   }
 
   userInput() {
@@ -334,7 +382,7 @@ export class Match extends Phaser.Scene {
     if (d < 60) { p.vx += (dx / d) * 120; p.vy += (dy / d) * 120; }
     if (c && c.team !== p.team && d < 28 && !c.goalie) {
       if (this.turbo[c.team] <= 0 && Math.random() < 0.72) this.steal(p);
-      else { p.stun = 0.3; }
+      else { p.stun = 0.3; buzz(15); }
     }
   }
 
@@ -346,6 +394,8 @@ export class Match extends Phaser.Scene {
     if (team.id === 'sal') this.turbo[s] = 6;
     if (team.id === 'nan') this.moveGoal[s] = 15;
     this.events2.emit('banner', team.power + ' !', team.css, 1300);
+    this.events2.emit('power', s);
+    if (s === 0) buzz([30, 40, 30, 40, 80]);
   }
 
   cpuPower(dt: number) {
@@ -386,9 +436,10 @@ export class Match extends Phaser.Scene {
     if (!best) return;
     const d = Math.hypot(best.x - p.x, best.y - p.y);
     const tx = best.x + best.vx * 0.3, ty = best.y + best.vy * 0.3;
-    this.kick(p, tx, ty, Phaser.Math.Clamp(d * 1.4 + 170, 240, 440), 0);
+    this.kick(p, tx, ty, Phaser.Math.Clamp(d * 1.4 + 170, 240, 440), d > 140 ? 90 : 0);
     this.ball.passTo = best;
     sfx.pass();
+    if (p === this.ctrl) buzz(12);
   }
 
   shoot(p: P, power: number, aimY: number) {
@@ -399,7 +450,8 @@ export class Match extends Phaser.Scene {
     ty += Phaser.Math.FloatBetween(-1, 1) * 16 * (1 - power * 0.6) * Math.min(1.5, dist / 300);
     let speed = (290 + 250 * power) * statMult(this.teams[p.team].stats.t);
     if (p.team === 1 && settings.difficulty === 'facile') speed *= 0.85;
-    this.kick(p, gx, ty, speed, 30 + 120 * power);
+    this.kick(p, gx, ty, speed, 50 + 110 * power);
+    if (p === this.ctrl) buzz(power > 0.85 ? 45 : 22);
     const b = this.ball;
     b.isShot = true;
     this.stats.shots[p.team]++;
@@ -430,6 +482,9 @@ export class Match extends Phaser.Scene {
     this.ball.last = c;
     this.gain(q, true);
     sfx.steal();
+    if (q.team === 0 || c.team === 0) buzz(q.team === 0 ? 30 : [20, 30, 20]);
+    // la balle saute un peu au moment du vol
+    this.ball.z = 2; this.ball.vz = 70;
   }
 
   steals(dt: number) {
@@ -471,7 +526,7 @@ export class Match extends Phaser.Scene {
       }
       return;
     }
-    const out = Phaser.Math.Clamp(1 - Math.abs(b.x - GX[t]) / 300, 0, 1) * 12;
+    const out = Phaser.Math.Clamp(1 - Math.abs(b.x - GX[t]) / 240, 0, 1) * 10;
     // sur un tir, le gardien anticipe le point d'arrivée de la balle
     let aimY = b.y + b.vy * 0.08;
     const incoming = !b.owner && (t === 0 ? b.vx < -80 : b.vx > 80);
@@ -489,18 +544,18 @@ export class Match extends Phaser.Scene {
     const ogx = GX[o], ogy = CY + this.goalOff[o];
     const mgx = GX[t], mgy = CY + this.goalOff[t];
     const own = b.owner;
-    const wob = Math.sin(this.t * 1.3 + p.i * 2) * 14;
+    const wob = Math.sin(this.t * 1.3 + p.i * 2) * 11;
     const mates = this.players.filter((q) => q.team === t && !q.goalie && q !== p);
     const foes = this.players.filter((q) => q.team === o && !q.goalie);
 
     if (own === p) {
       // porteur IA
-      let tx = ogx - dir * 75, ty = ogy + Math.sin(this.t * 1.5 + p.i) * 50;
+      let tx = ogx - dir * 60, ty = ogy + Math.sin(this.t * 1.5 + p.i) * 40;
       for (const f of foes) {
         const fx = f.x - p.x, fy = f.y - p.y, fd = Math.hypot(fx, fy);
         if (fd < 50 && fx * dir > -5) ty += (p.y > f.y ? 1 : -1) * 40;
       }
-      this.moveTo(p, tx, Phaser.Math.Clamp(ty, 40, RH - 40));
+      this.moveTo(p, tx, Phaser.Math.Clamp(ty, 35, RH - 35));
       p.aiT -= dt;
       if (p.aiT <= 0) {
         p.aiT = Phaser.Math.FloatBetween(0.3, 0.55);
@@ -508,7 +563,7 @@ export class Match extends Phaser.Scene {
         const front = (ogx - p.x) * dir > 30;
         const nearFoe = Math.min(...foes.map((f) => Math.hypot(f.x - p.x, f.y - p.y)));
         const hard = settings.difficulty === 'normal';
-        const shootP = !front ? 0 : dG < 190 ? (hard ? 0.55 : 0.4) : dG < 260 ? 0.12 : 0;
+        const shootP = !front ? 0 : dG < 150 ? (hard ? 0.55 : 0.4) : dG < 210 ? 0.12 : 0;
         if (Math.random() < shootP) this.shoot(p, Phaser.Math.FloatBetween(0.35, 1), Phaser.Math.FloatBetween(-1, 1));
         else if (nearFoe < 34 && Math.random() < 0.5) this.pass(p, dir, Phaser.Math.FloatBetween(-0.5, 0.5));
       }
@@ -521,9 +576,9 @@ export class Match extends Phaser.Scene {
       const others = this.players.filter((q) => q.team === t && !q.goalie && q !== own);
       const k = others.indexOf(p);
       const side = own.y < CY ? 1 : -1;
-      const x = k === 0 ? own.x + dir * 120 : own.x - dir * 60;
-      const y = k === 0 ? CY + side * 85 : CY + side * 30;
-      this.moveTo(p, Phaser.Math.Clamp(x, 110, 690), y + wob, 0.85);
+      const x = k === 0 ? own.x + dir * 95 : own.x - dir * 45;
+      const y = k === 0 ? CY + side * 65 : CY + side * 25;
+      this.moveTo(p, Phaser.Math.Clamp(x, 85, RW - 85), y + wob, 0.85);
       return;
     }
 
@@ -541,7 +596,7 @@ export class Match extends Phaser.Scene {
         const atk = foes.filter((f) => f !== own).sort((a, c) => Math.hypot(a.x - mgx, a.y - mgy) - Math.hypot(c.x - mgx, c.y - mgy))[0];
         if (atk) this.moveTo(p, atk.x + (mgx - atk.x) * 0.3, atk.y + (mgy - atk.y) * 0.3, 0.9);
       } else {
-        this.moveTo(p, mgx + dir * 85, mgy + (b.y - mgy) * 0.4, 0.9);
+        this.moveTo(p, mgx + dir * 65, mgy + (b.y - mgy) * 0.4, 0.9);
       }
       return;
     }
@@ -550,8 +605,8 @@ export class Match extends Phaser.Scene {
     if (rank === 0 && (t === 1 || !this.ctrl || Math.hypot(this.ctrl.x - b.x, this.ctrl.y - b.y) > 90)) {
       this.moveTo(p, b.x + b.vx * 0.2, b.y + b.vy * 0.2);
     } else {
-      const x = (b.x - 400) * dir > 0 ? b.x - dir * 60 : mgx + dir * 110;
-      this.moveTo(p, Phaser.Math.Clamp(x, 100, 700), CY + (p.i === 1 ? -70 : 70) + wob, 0.8);
+      const x = (b.x - CX) * dir > 0 ? b.x - dir * 45 : mgx + dir * 85;
+      this.moveTo(p, Phaser.Math.Clamp(x, 80, RW - 80), CY + (p.i === 1 ? -55 : 55) + wob, 0.8);
     }
   }
 
@@ -563,7 +618,7 @@ export class Match extends Phaser.Scene {
       const k = Math.min(1, dt * 7);
       p.vx += (dx - p.vx) * k; p.vy += (dy - p.vy) * k;
       p.x += p.vx * dt; p.y += p.vy * dt;
-      p.x = Phaser.Math.Clamp(p.x, 8, RW - 8); p.y = Phaser.Math.Clamp(p.y, 8, RH - 8);
+      confine(p, 8);
       if (!p.goalie) for (const t of [0, 1] as Side[]) this.pushOutOfGoal(p, t);
       const sp = Math.hypot(p.vx, p.vy);
       if (sp > 15 && !p.goalie) {
@@ -606,7 +661,7 @@ export class Match extends Phaser.Scene {
       const o = b.owner;
       b.x = o.x + o.fx * 9; b.y = o.y + o.fy * 6 + 2; b.z = 0;
       b.vx = o.vx; b.vy = o.vy;
-      b.x = Phaser.Math.Clamp(b.x, 5, RW - 5); b.y = Phaser.Math.Clamp(b.y, 5, RH - 5);
+      confine(b, 5);
       return;
     }
     if (b.kind === 'homing') {
@@ -622,15 +677,23 @@ export class Match extends Phaser.Scene {
     }
     if (b.z > 0 || b.vz > 0) {
       b.vz -= 650 * dt; b.z += b.vz * dt;
-      if (b.z < 0) { b.z = 0; b.vz = b.vz < -60 ? -b.vz * 0.35 : 0; }
+      if (b.z < 0) {
+        b.z = 0;
+        if (b.vz < -45) { b.vz = -b.vz * 0.55; if (b.vz > 50) sfx.bounce(); } else b.vz = 0;
+      }
     }
     const px = b.x, py = b.y;
     b.x += b.vx * dt; b.y += b.vy * dt;
-    // bandes
-    if (b.x < 5) { b.x = 5; b.vx = -b.vx * 0.75; }
-    if (b.x > RW - 5) { b.x = RW - 5; b.vx = -b.vx * 0.75; }
-    if (b.y < 5) { b.y = 5; b.vy = -b.vy * 0.75; }
-    if (b.y > RH - 5) { b.y = RH - 5; b.vy = -b.vy * 0.75; }
+    // bandes (angles arrondis) : la balle rebondit et saute un peu
+    const nrm = confine(b, 5);
+    if (nrm) {
+      const vn = b.vx * nrm[0] + b.vy * nrm[1];
+      if (vn < 0) {
+        b.vx -= 1.75 * vn * nrm[0]; b.vy -= 1.75 * vn * nrm[1];
+        if (-vn > 120) { b.vz = Math.max(b.vz, Math.min(130, -vn * 0.3)); sfx.bounce(); }
+        if (b.kind === 'homing') b.kind = 'super';
+      }
+    }
     // buts
     for (const t of [0, 1] as Side[]) {
       const g = this.goalBox(t);

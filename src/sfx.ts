@@ -34,6 +34,7 @@ export const sfx = {
   superShot: () => { noise(0.2, 0.18); tone(180, 0.35, 'sawtooth', 0.07, 900); },
   steal: () => tone(300, 0.08, 'triangle', 0.08, 500),
   save: () => { noise(0.05, 0.1); tone(140, 0.1, 'square', 0.06); },
+  bounce: () => tone(900, 0.04, 'triangle', 0.035, 600),
   post: () => tone(1200, 0.15, 'triangle', 0.06, 900),
   whistle: () => { tone(2200, 0.35, 'sine', 0.05); tone(2350, 0.35, 'sine', 0.03); },
   goal: () => [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.18, 'square', 0.06, undefined, i * 0.1)),

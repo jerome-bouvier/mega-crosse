@@ -3,6 +3,14 @@ import { PAL } from './data';
 import { sfx, unlockAudio } from './sfx';
 
 export const FONT = '"Press Start 2P", monospace';
+export const BODY = 'VT323, monospace';
+
+/** Texte courant (police VT323 des maquettes, accents complets). */
+export function vt(scene: Phaser.Scene, x: number, y: number, s: string, size = 14, color: string = PAL.text, origin = 0.5) {
+  const t = scene.add.text(x, y, s, { fontFamily: BODY, fontSize: `${size}px`, color, align: 'center', lineSpacing: 0 });
+  t.setOrigin(origin, 0.5);
+  return t;
+}
 
 // La police pixel n'a pas les majuscules accentuées : on les simplifie (usage courant en français).
 export const caps = (s: string) => s.replace(/[ÉÈÊ]/g, 'E').replace(/[ÎÏ]/g, 'I').replace(/[ÀÂ]/g, 'A').replace(/Ô/g, 'O').replace(/[ÙÛ]/g, 'U');

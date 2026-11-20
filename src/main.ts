@@ -9,7 +9,7 @@ loadSettings();
 async function fontsReady() {
   try {
     await Promise.race([
-      document.fonts.load('8px "Press Start 2P"'),
+      Promise.all([document.fonts.load('8px "Press Start 2P"'), document.fonts.load('16px "VT323"')]),
       new Promise((r) => setTimeout(r, 2500)),
     ]);
   } catch { /* police de secours */ }
