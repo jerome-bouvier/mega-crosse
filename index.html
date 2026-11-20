@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Mega Crosse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+  :root { --bg: #0d0b24; --fg: #f4f1ff; --accent: #ffb52e; color-scheme: dark; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; image-rendering: pixelated; }
+  #rotate { position: fixed; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; background: var(--bg); font: 12px/2 "Press Start 2P", monospace; z-index: 5; }
+  #rotate b { color: var(--accent); font-weight: normal; display: block; font-size: 40px; line-height: 1.4; }
+  @media (orientation: portrait) and (max-width: 900px) { #rotate { display: grid; } }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="rotate"><div><b>⟳</b>Tourne ton téléphone<br>en mode paysage</div></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
